@@ -279,8 +279,24 @@ function updTrail(h){const t=trails[h],v=hv[h],c=new THREE.Color(COLS[h]);
   t.col[i*6]=t.col[i*6+3]=c.r*f;t.col[i*6+1]=t.col[i*6+4]=c.g*f;t.col[i*6+2]=t.col[i*6+5]=c.b*f;}
  t.g.attributes.position.needsUpdate=true;t.g.attributes.color.needsUpdate=true;}
 
+// High-end metallic / glass cube base standard material
+const nMat=COLS.map(function(c){
+  return new THREE.MeshStandardMaterial({
+    color: 0x0a0a12,
+    emissive: c,
+    emissiveIntensity: 0.8,
+    roughness: 0.15,
+    metalness: 0.85
+  });
+});
+
+// Half-cube cut geometries
+const halfVertG = new THREE.BoxGeometry(.235, .48, .48);
+const halfHorizG = new THREE.BoxGeometry(.48, .235, .48);
+
+// Glow bevel frame for full cube visual upgrade
 const boxG=new THREE.BoxGeometry(.48,.48,.48),edgeG=new THREE.EdgesGeometry(boxG),eMat=new THREE.LineBasicMaterial({color:0xffffff});
-const nMat=COLS.map(function(c){return new THREE.MeshStandardMaterial({color:0x14141c,emissive:c,emissiveIntensity:.95,roughness:.4,metalness:.3});});
+
 const aSh=new THREE.Shape();aSh.moveTo(0,-.15);aSh.lineTo(.18,.11);aSh.lineTo(-.18,.11);aSh.closePath();
 const arrowG=new THREE.ShapeGeometry(aSh),dotG=new THREE.CircleGeometry(.1,16),wMat=new THREE.MeshBasicMaterial({color:0xffffff});
 const bombG=new THREE.IcosahedronGeometry(.22,1),bombM=new THREE.MeshStandardMaterial({color:0x0a0a0a,emissive:0xff2200,emissiveIntensity:.6});
@@ -291,17 +307,104 @@ function spawn(d){
   let m;
   if(d.bomb){m=new THREE.Mesh(bombG,bombM);m.add(new THREE.Sprite(bombH));}
   else{
-    m=new THREE.Mesh(boxG,nMat[d.c]);m.add(new THREE.LineSegments(edgeG,eMat));
-    const a=new THREE.Mesh(d.dir===4?dotG:arrowG,wMat);a.position.z=.245;if(d.dir<4)a.rotation.z=ROT[d.dir];m.add(a);m.add(new THREE.Sprite(haloM[d.c]));
+    m=new THREE.Mesh(boxG,nMat[d.c]);
+    m.add(new THREE.LineSegments(edgeG,eMat));
+    
+    // Add glowing inner cube accent core
+    const core = new THREE.Mesh(
+      new THREE.BoxGeometry(.32,.32,.32),
+      new THREE.MeshBasicMaterial({color: COLS[d.c], transparent: true, opacity: 0.4})
+    );
+    m.add(core);
+
+    const a=new THREE.Mesh(d.dir===4?dotG:arrowG,wMat);
+    a.position.z=.245;if(d.dir<4)a.rotation.z=ROT[d.dir];
+    m.add(a);m.add(new THREE.Sprite(haloM[d.c]));
   }
   m.position.set((d.lane-1.5)*.65,.85+d.row*.55,SPAWNZ);S.add(m);notes.push(Object.assign({}, d, {m: m}));
 }
 function rm(n){S.remove(n.m);notes.splice(notes.indexOf(n),1);}
 
+// Advanced Dual-Layer Particle System (Dust Glow Sprites & Cube Debris Fragments)
 const parts=[];
-for(let i=0;i<160;i++){const m=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,blending:THREE.AdditiveBlending,depthWrite:false,transparent:true}));m.visible=false;S.add(m);parts.push({m:m,v:new THREE.Vector3(),l:0});}
+for(let i=0;i<240;i++){
+  const isMesh = i % 2 === 0;
+  let m;
+  if(isMesh){
+    m = new THREE.Mesh(
+      new THREE.BoxGeometry(.06, .06, .06),
+      new THREE.MeshBasicMaterial({color: 0xffffff, transparent: true})
+    );
+  }else{
+    m = new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,blending:THREE.AdditiveBlending,depthWrite:false,transparent:true}));
+  }
+  m.visible=false;S.add(m);
+  parts.push({m:m,v:new THREE.Vector3(),rotV:new THREE.Vector3(),l:0,isMesh:isMesh});
+}
 let pi=0;
-function burst(p,col,n){const w=waves[wi++%waves.length];w.position.copy(p);w.material.color.setHex(col);w.userData.l=.35;w.visible=true;for(let i=0;i<n;i++){const q=parts[pi++%parts.length];q.m.position.copy(p);q.m.material.color.setHex(col);q.m.visible=true;q.l=.6+Math.random()*.3;q.v.set((Math.random()-.5)*4,(Math.random()-.3)*4,(Math.random()-.2)*3);}}
+
+// Broken Cube Slices Physics Manager
+const slicedParts = [];
+function spawnSlicedHalfCubes(pos, colorIdx, isVert, saberVel) {
+  const mat = nMat[colorIdx];
+  const geom = isVert ? halfVertG : halfHorizG;
+  
+  for (let i = 0; i < 2; i++) {
+    const half = new THREE.Mesh(geom, mat);
+    const offset = (i === 0 ? -1 : 1) * 0.13;
+    
+    if (isVert) half.position.set(pos.x + offset, pos.y, pos.z);
+    else half.position.set(pos.x, pos.y + offset, pos.z);
+
+    half.rotation.copy(new THREE.Euler(
+      (Math.random() - .5) * 0.4,
+      (Math.random() - .5) * 0.4,
+      (Math.random() - .5) * 0.4
+    ));
+
+    // Dynamic ejection force based on saber slice direction & split orientation
+    const ejectVel = new THREE.Vector3(
+      isVert ? offset * 12 + saberVel.x * 0.2 : (Math.random() - .5) * 3,
+      !isVert ? offset * 12 + saberVel.y * 0.2 : (Math.random() - .5) * 3,
+      saberVel.z * 0.3 - 2 - Math.random() * 3
+    );
+
+    const rotVel = new THREE.Vector3(
+      (Math.random() - .5) * 12,
+      (Math.random() - .5) * 12,
+      (Math.random() - .5) * 12
+    );
+
+    S.add(half);
+    slicedParts.push({ mesh: half, vel: ejectVel, rotVel: rotVel, life: 0.8 });
+  }
+}
+
+function burst(p,col,n,vel){
+  vel = vel || new THREE.Vector3();
+  const w=waves[wi++%waves.length];w.position.copy(p);w.material.color.setHex(col);w.userData.l=.35;w.visible=true;
+  for(let i=0;i<n;i++){
+    const q=parts[pi++%parts.length];
+    q.m.position.copy(p);
+    
+    if(q.isMesh){
+      q.m.material.color.setHex(col);
+      q.m.material.opacity = 1;
+    } else {
+      q.m.material.color.setHex(col);
+      q.m.material.opacity = 0.8;
+    }
+
+    q.m.visible=true;
+    q.l=.5+Math.random()*.4;
+    q.v.set(
+      (Math.random()-.5)*6 + vel.x*0.15,
+      (Math.random()-.4)*6 + vel.y*0.15,
+      (Math.random()-.3)*5 + vel.z*0.15
+    );
+    q.rotV.set((Math.random()-.5)*10, (Math.random()-.5)*10, (Math.random()-.5)*10);
+  }
+}
 
 const hc=document.createElement('canvas');hc.width=1024;hc.height=512;
 const hx=hc.getContext('2d'),hudTex=new THREE.CanvasTexture(hc);
@@ -351,10 +454,14 @@ const ctl=[0,1].map(function(i){
 });
 const hOf=function(c){return c.userData.hand!==undefined?c.userData.hand:ctl.indexOf(c);};
 const hv=[0,1].map(function(){return {tip:new THREE.Vector3(),prev:new THREE.Vector3(),base:new THREE.Vector3(),vel:new THREE.Vector3(),init:false};});
+
 function buzz(h,s,d){
   s = s || .6; d = d || 40;
   const c=ctl.find(function(x){return hOf(x)===h;}),gp=c&&c.userData.gp;if(!gp)return;
-  try{if(gp.hapticActuators&&gp.hapticActuators[0])gp.hapticActuators[0].pulse(s,d);else if(gp.vibrationActuator)gp.vibrationActuator.playEffect('dual-rumble',{duration:d,strongMagnitude:s,weakMagnitude:s});}catch(e){}
+  try{
+    if(gp.hapticActuators&&gp.hapticActuators[0]) gp.hapticActuators[0].pulse(s,d);
+    else if(gp.vibrationActuator) gp.vibrationActuator.playEffect('dual-rumble',{duration:d,strongMagnitude:s,weakMagnitude:s});
+  }catch(e){}
 }
 let mx=0,my=1.4;
 addEventListener('pointermove',function(e){mx=(e.clientX/innerWidth-.5)*2.4;my=1.9-(e.clientY/innerHeight)*1.6;});
@@ -422,10 +529,18 @@ function endGame(win){
   drawHUD();
 }
 function hurt(a){health=Math.max(0,health-a);combo=0;if(health<=0)endGame(false);}
-function hit(n,h,sp){
+function hit(n,h,sp,isVert,vel){
   hits++;total++;combo++;maxCombo=Math.max(maxCombo,combo);health=Math.min(100,health+2);
   score+=Math.round((70+Math.min(30,sp*6))*mult());
-  sx.hit(combo);if(combo%10===0){sx.fan();flash=1;}buzz(h,.7,45);
+  sx.hit(combo);
+  if(combo%10===0){sx.fan();flash=1;}
+  
+  // High-intensity haptic vibration feedback on cube impact
+  buzz(h, 0.85, 65);
+  
+  // Spawn physical slice debris and dust particle burst
+  spawnSlicedHalfCubes(n.m.position, n.c, isVert, vel);
+  burst(n.m.position, COLS[n.c], 32, vel);
 }
 const _a=new THREE.Vector3(),_b=new THREE.Vector3(),_c=new THREE.Vector3();
 function segDist(a,b,p){_a.subVectors(b,a);const t=Math.max(0,Math.min(1,_b.subVectors(p,a).dot(_a)/_a.lengthSq()));return _c.copy(a).addScaledVector(_a,t).distanceTo(p);}
@@ -468,18 +583,61 @@ R.setAnimationLoop(function(time){
         const v=hv[h];
         if(segDist(v.base,v.tip,n.m.position) > CONFIG.hitThreshold) continue;
         const sp=v.vel.length();
-        if(n.bomb){if(sp>.6){sx.bomb();buzz(h,1,120);burst(n.m.position,0xff4400,30);rm(n);hurt(10);flash=1;break;}continue;}
+        if(n.bomb){if(sp>.6){sx.bomb();buzz(h,1,120);burst(n.m.position,0xff4400,30,v.vel);rm(n);hurt(10);flash=1;break;}continue;}
         if(sp<1.3)continue;
         let ok=n.c===h;
         if(ok&&n.dir<4){const d=DIRS[n.dir];ok=(v.vel.x*d[0]+v.vel.y*d[1])>.2*sp;}
-        burst(n.m.position,COLS[n.c],ok?26:8);
-        if(ok)hit(n,h,sp);else{total++;sx.wrong();buzz(h,.3,80);hurt(3);}
+        
+        // Detect slice direction (Vertical vs Horizontal)
+        const isVert = Math.abs(v.vel.y) > Math.abs(v.vel.x);
+        
+        if(ok) {
+          hit(n,h,sp,isVert,v.vel);
+        } else {
+          total++;sx.wrong();buzz(h,.3,80);hurt(3);
+          burst(n.m.position,COLS[n.c],10,v.vel);
+        }
         rm(n);break;
       }
     }
     if(ci>=chart.length&&notes.length===0&&state==='play')endGame(true);
   }
-  parts.forEach(function(q){if(!q.m.visible)return;q.l-=dt;if(q.l<=0){q.m.visible=false;return;}q.v.y-=6*dt;q.m.position.addScaledVector(q.v,dt);q.m.scale.setScalar(.05+q.l*.16);});
+  
+  // Dust & Debris Particle Animation Update
+  parts.forEach(function(q){
+    if(!q.m.visible)return;
+    q.l-=dt;
+    if(q.l<=0){q.m.visible=false;return;}
+    q.v.y-=6*dt;
+    q.m.position.addScaledVector(q.v,dt);
+    if(q.isMesh){
+      q.m.rotation.x += q.rotV.x * dt;
+      q.m.rotation.y += q.rotV.y * dt;
+      q.m.scale.setScalar(.03 + q.l * .1);
+      q.m.material.opacity = Math.min(1, q.l * 2);
+    } else {
+      q.m.scale.setScalar(.05 + q.l * .2);
+      q.m.material.opacity = Math.min(1, q.l * 1.5);
+    }
+  });
+
+  // Half-Cube Physics & Motion Update
+  for(let i=slicedParts.length-1; i>=0; i--){
+    const p = slicedParts[i];
+    p.life -= dt;
+    if(p.life <= 0){
+      S.remove(p.mesh);
+      slicedParts.splice(i, 1);
+      continue;
+    }
+    p.vel.y -= 9.8 * dt; // Gravity effect
+    p.mesh.position.addScaledVector(p.vel, dt);
+    p.mesh.rotation.x += p.rotVel.x * dt;
+    p.mesh.rotation.y += p.rotVel.y * dt;
+    p.mesh.rotation.z += p.rotVel.z * dt;
+    p.mesh.scale.setScalar(Math.max(0, p.life / 0.8));
+  }
+
   waves.forEach(function(w){if(!w.visible)return;w.userData.l-=dt;const k=w.userData.l/.35;if(k<=0){w.visible=false;return;}w.scale.setScalar(1+(1-k)*7);w.material.opacity=k;});
   hudT+=dt;if(hudT>.1){hudT=0;drawHUD();}
   R.render(S,C);
