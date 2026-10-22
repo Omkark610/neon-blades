@@ -294,7 +294,7 @@ function burst(p,col,n){const w=waves[wi++%waves.length];w.position.copy(p);w.ma
 const hc=document.createElement('canvas');hc.width=1024;hc.height=512;
 const hx=hc.getContext('2d'),hudTex=new THREE.CanvasTexture(hc);
 const hud=new THREE.Mesh(new THREE.PlaneGeometry(3.6,1.8),new THREE.MeshBasicMaterial({map:hudTex,transparent:true,fog:false,depthWrite:false}));
-hud.position.set(0,2.6,-6);S.add(hud);
+hud.position.set(0,4,-6);S.add(hud);
 const mult=function(){return Math.min(8,1+(combo/8|0));};
 
 function drawHUD(){
